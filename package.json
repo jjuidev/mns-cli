@@ -1,6 +1,6 @@
 {
   "name": "@jjuidev/mns-cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Meeting Notes - Video meeting analyzer CLI tool",
   "license": "MIT",
   "type": "module",
