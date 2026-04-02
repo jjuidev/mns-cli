@@ -13,7 +13,7 @@ import { DEFAULT_GEMINI_MODEL } from '@/utils/constants'
 const logger = consola.withTag('summarizer')
 
 /**
- * Generate meeting notes from transcript
+ * Generate meeting notes from transcript (non-streaming, backward-compatible)
  */
 export const generateMeetingNotes = async (options: {
 	apiKey: string
@@ -70,6 +70,83 @@ export const generateMeetingNotes = async (options: {
 		return meetingNotes
 	} catch (error) {
 		logger.error(`Failed to generate meeting notes: ${error}`)
+		throw error
+	}
+}
+
+/**
+ * Stream meeting notes generation — yields text chunks as Gemini produces them,
+ * then resolves the final MeetingNotes object once the stream completes.
+ *
+ * Usage: call this when streamSummary=true to get real-time text streaming.
+ */
+export const streamMeetingNotes = async (options: {
+	apiKey: string
+	transcript: Transcript
+	context?: string
+	targetLanguage?: string
+	verbose?: boolean
+	model?: string
+	/** Called for each text chunk as Gemini streams it */
+	onChunk: (chunk: string) => void
+}): Promise<MeetingNotes> => {
+	const genAI = new GoogleGenAI({ apiKey: options.apiKey })
+	const model = options.model || DEFAULT_GEMINI_MODEL
+
+	if (options.verbose) {
+		logger.info('Streaming meeting notes...')
+	}
+
+	const prompt = buildSummarizationPrompt(options.transcript, options.context, options.targetLanguage)
+
+	try {
+		const stream = await genAI.models.generateContentStream({
+			model,
+			contents: [
+				{
+					role: 'user',
+					parts: [{ text: prompt }]
+				}
+			]
+		})
+
+		let fullText = ''
+
+		for await (const chunk of stream) {
+			const text = chunk.text ?? ''
+
+			if (text) {
+				fullText += text
+				options.onChunk(text)
+			}
+		}
+
+		const meetingNotes = parseMeetingNotes(fullText, options.transcript, options.context)
+
+		// Translate transcript segments if source != target language
+		const sourceSegments = options.transcript.segments
+
+		const needsTranslation =
+			options.targetLanguage &&
+			options.targetLanguage.toLowerCase() !== (options.transcript.sourceLanguage || '').toLowerCase() &&
+			sourceSegments.length > 0
+
+		if (needsTranslation) {
+			logger.info(`Translating transcript to ${options.targetLanguage}...`)
+			meetingNotes.fullTranscriptTarget = await translateSegments(
+				genAI,
+				sourceSegments,
+				options.transcript.sourceLanguage,
+				options.targetLanguage!,
+				options.verbose,
+				model
+			)
+		}
+
+		logger.success('Meeting notes streamed and parsed')
+		return meetingNotes
+	} catch (error) {
+		logger.error(`Failed to stream meeting notes: ${error}`)
 		throw error
 	}
 }

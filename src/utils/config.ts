@@ -106,14 +106,21 @@ export const resolveModelConfig = (cliModel?: string): { geminiModel: string } =
  * No longer exits on missing API key — caller handles that.
  *
  * API key priority:
- *   process.env > config.env.KEY (nested) > config.KEY (flat camelCase) > config['UPPER_KEY'] (flat legacy)
+ *   options.apiKey > process.env > config.env.KEY (nested) > config.KEY (flat camelCase) > config['UPPER_KEY'] (flat legacy)
  */
-export const loadConfig = (options: { outputDir?: string; parallel?: boolean; model?: string }): ProcessingConfig => {
+export const loadConfig = (options: {
+	outputDir?: string
+	parallel?: boolean
+	model?: string
+	/** Explicit API key — takes highest priority over all other sources */
+	apiKey?: string
+}): ProcessingConfig => {
 	const projectConfig = readConfigFile(getProjectConfigPath())
 	const globalConfig = readConfigFile(getGlobalConfigPath())
 
-	// Nested schema keys take priority over flat keys
+	// Explicit apiKey param takes highest priority
 	const geminiApiKey =
+		options.apiKey ||
 		process.env.GEMINI_API_KEY ||
 		process.env.GOOGLE_API_KEY ||
 		projectConfig?.env?.GEMINI_API_KEY ||

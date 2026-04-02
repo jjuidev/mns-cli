@@ -13,14 +13,18 @@ import * as path from 'path'
 import { GeminiProvider } from '@/providers/gemini-provider'
 import { chunkAudio } from '@/services/audio-chunker'
 import { cleanupTempFiles } from '@/services/cleanup'
+import { streamMeetingNotes } from '@/services/summarizer'
 import { extractAudio, getVideoMetadata, validateVideoFile } from '@/services/video-processor'
 import { ProgressEvent } from '@/types'
+import { AsyncQueue } from '@/utils/async-queue'
 import { ensureOutputDir, ensureTempDir, loadConfig } from '@/utils/config'
 import { saveMeetingNotes } from '@/utils/output'
 
 export type { AnalyzeOptions, MeetingNotes, ProgressEvent, Transcript, TranscriptSegment } from '@/types'
 
 export interface AnalyzeVideoOptions {
+	/** Gemini API key — takes highest priority over env vars and config files */
+	apiKey?: string
 	sourceLanguage?: string // default: 'English'
 	targetLanguage?: string // default: 'Vietnamese'
 	context?: string
@@ -29,6 +33,12 @@ export interface AnalyzeVideoOptions {
 	parallel?: boolean
 	model?: string
 	verbose?: boolean
+	/**
+	 * Stream Gemini summarization output chunk-by-chunk.
+	 * When true, yields `{ stage: 'summarizing_stream', chunk }` events during summarization.
+	 * Default: false (backward-compatible — waits for full response before yielding)
+	 */
+	streamSummary?: boolean
 }
 
 /** Analyze a video/audio file and yield real-time progress events. Cancel via `gen.return()`. */
@@ -39,7 +49,8 @@ export async function* analyzeVideo(
 	const config = loadConfig({
 		outputDir: options.outputDir,
 		parallel: options.parallel,
-		model: options.model
+		model: options.model,
+		apiKey: options.apiKey
 	})
 
 	yield { stage: 'validating' }
@@ -98,12 +109,43 @@ export async function* analyzeVideo(
 
 	yield { stage: 'summarizing' }
 
-	const meetingNotes = await provider.summarize!({
-		transcript,
-		context: options.context,
-		targetLanguage: options.targetLanguage ?? 'Vietnamese',
-		verbose: options.verbose
-	})
+	let meetingNotes
+
+	if (options.streamSummary && config.geminiApiKey) {
+		// Async queue bridges push-based onChunk callback → pull-based AsyncGenerator.
+		// Each chunk is yielded immediately as Gemini produces it — true real-time streaming.
+		const chunkQueue = new AsyncQueue<string>()
+
+		// Run streamMeetingNotes concurrently: chunks flow into queue while analyzeVideo yields them
+		const notesPromise = streamMeetingNotes({
+			apiKey: config.geminiApiKey,
+			transcript,
+			context: options.context,
+			targetLanguage: options.targetLanguage ?? 'Vietnamese',
+			verbose: options.verbose,
+			model: config.geminiModel,
+			onChunk: (chunk) => chunkQueue.push(chunk)
+		})
+
+		// Yield each chunk as it arrives from Gemini
+		notesPromise.then(() => chunkQueue.done()).catch(() => chunkQueue.done())
+
+		for await (const chunk of chunkQueue) {
+			yield {
+				stage: 'summarizing_stream' as const,
+				chunk
+			}
+		}
+
+		meetingNotes = await notesPromise
+	} else {
+		meetingNotes = await provider.summarize!({
+			transcript,
+			context: options.context,
+			targetLanguage: options.targetLanguage ?? 'Vietnamese',
+			verbose: options.verbose
+		})
+	}
 
 	const outputPath = await saveMeetingNotes(meetingNotes, config.outputDir, { verbose: options.verbose })
 

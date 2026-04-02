@@ -140,5 +140,7 @@ export type ProgressEvent =
 	| { stage: 'chunking'; totalChunks: number }
 	| { stage: 'transcribing'; chunk: number; total: number; percent: number }
 	| { stage: 'summarizing' }
+	/** Streamed text chunk from Gemini during summarization — enabled via streamSummary option */
+	| { stage: 'summarizing_stream'; chunk: string }
 	| { stage: 'saving'; outputPath: string }
 	| { stage: 'done'; result: MeetingNotes }
