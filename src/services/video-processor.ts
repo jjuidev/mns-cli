@@ -109,7 +109,7 @@ export const validateVideoFile = (videoPath: string): void => {
 	}
 
 	const ext = path.extname(videoPath).toLowerCase()
-	const supportedVideoFormats = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv']
+	const supportedVideoFormats = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv']
 	const supportedAudioFormats = ['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.wma']
 	const supportedFormats = [...supportedVideoFormats, ...supportedAudioFormats]
 
