@@ -1,5 +1,11 @@
 # @jjuidev/mns-cli
 
+## 0.0.4
+
+### Patch Changes
+
+- 3307417: Support .wmv file
+
 ## 0.0.3
 
 ### Patch Changes
